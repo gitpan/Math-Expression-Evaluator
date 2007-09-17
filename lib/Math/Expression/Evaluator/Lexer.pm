@@ -2,6 +2,7 @@ package Math::Expression::Evaluator::Lexer;
 use warnings;
 use strict;
 use Carp qw(confess);
+use Data::Dumper;
 
 =head1 NAME
 
@@ -19,7 +20,8 @@ Math::Expression::Evaluator::Lexer - Simple Lexer
         ['Whitespace',      qr/\s/, sub { return undef; }],
          );
     my $text = "-12 * (3+4)";
-    foreach (lex($text, \@input_tokens){
+    my $out_tokens = lex($text, \@input_tokens);
+    for (@$out_tokens){
         my ($name, $text) = @$_;
         print "Found Token $name: $text\n";
     }
@@ -35,11 +37,19 @@ into tokens, depending on the input tokens you provide
 
 =item lex
 
-The only exported method is lex, which expects input text as its first argument and a array ref to list of input tokens.
+The only exported method is lex, which expects input text as its 
+first argument and a array ref to list of input tokens.
 
-Each input token consists of a token name (which you can choose freely), a regexwhich matches the desired token, and optionally a reference to a functions that takes the matched token text as its argument. The token text is replaced by the return value of that function. If the function returns undef, that token will not be included in the list of output tokens.
+Each input token consists of a token name (which you can choose freely), 
+a regex which matches the desired token, and optionally a reference to 
+a functions that takes the matched token text as its argument. The 
+token text is replaced by the return value of that function. If the 
+function returns undef, that token will not be included in the list 
+of output tokens.
 
-lex() returns a list of output tokens, each output token is a reference to a list which contains the token name and the matched text.
+lex() returns an array ref to a list of output tokens, each output 
+token is a reference to a list which contains the token name and 
+the matched text.
 
 =back
 
@@ -64,35 +74,46 @@ our %EXPORT_TAGS = (":all" => \@EXPORT_OK);
 
 sub lex {
     my ($text, $tokens) = @_;
-    confess("foo") unless defined $text;
-    return unless (length $text);
+    confess("passed undefined value to lex()") unless defined $text;
+    my $l = length $text;
+    return unless ($l);
+
+    my $old_pos = 0;
+
     my @res;
-    while (length($text) > 0){
+    while ($old_pos < $l){
         my $matched = 0;
-# try to match at the start of $text
-        foreach (@$tokens){
+REGEXES:
+        for (@$tokens){
             my $re = $_->[1];
-            if ($text =~ m#^(?:$re)#m){
+            # failed regex matches reset pos(), so we need to set it 
+            # manually
+            pos($text) = $old_pos;
+            if ($text =~ m/\G($re)/){
                 $matched = 1;
-                my $match = $&;
-                confess("Each token has to require at least one character;"
-                        . " Rule $_->[0] matched Zero!\n") unless (length($match) > 0);
-                if (my $fun = $_->[2]){
-                    $match = &$fun($match);
+                my $match = $1;
+                $old_pos += length $match;
+                if (length $match == 0){
+                    confess("Each token has to require at least one "
+                            . "character; Rule $_->[0] matched Zero!\n");
                 }
-                if (defined $match){
-                    push @res, [$_->[0], $&];
+                if ($_->[2]){
+                    $match = &{$_->[2]}($match);
                 }
-                $text = $';
-                last;
+                if (defined $match && length $match){
+#                    push @res, [$_->[0], $match, $old_pos];
+                    push @res, [$_->[0], $match];
+                }
+                next REGEXES;
             }
         }
-        unless($matched){
-            Carp::confess("There were unmatched items.\n");
+        if ($matched == 0){
+            confess("No token matched input text <$text> at position $old_pos");
         }
     }
-    return @res;
+    return \@res;
 }
+
 1;
 
 # vim: sw=4 ts=4 expandtab
