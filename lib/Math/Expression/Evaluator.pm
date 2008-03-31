@@ -2,17 +2,18 @@ package Math::Expression::Evaluator;
 use strict;
 use warnings;
 use Math::Expression::Evaluator::Parser;
-use Math::Expression::Evaluator::Util qw(is_lvalue simplify_ast);
-#use Data::Dumper;
+use Math::Expression::Evaluator::Util qw(is_lvalue);
+use Data::Dumper;
+use POSIX qw(ceil floor);
 use Carp;
 
 use Math::Trig qw(atan asin acos tan);
 
-our $VERSION = '0.0.4';
+our $VERSION = '0.0.5';
 
 =head1 NAME
 
-Math::Expression::Evaluator - parses and evaluates mathematic expressions
+Math::Expression::Evaluator - parses, compiles and evaluates mathematic expressions
 
 =head1 SYNOPSIS
 
@@ -28,10 +29,16 @@ Math::Expression::Evaluator - parses and evaluates mathematic expressions
     print $m->parse("log2(16)")->val(), "\n";
     # prints 4
 
+    # if you care about speed
+    my $func = $m->parse('2 + (4 * b)')->compiled;
+    for (0 .. 100){
+        print $func->({b => $_}), "\n";
+    }
+
 
 =head1 DESCRIPTION
 
-Math::Expression::Evaluator is a simple, recursive descending parser for 
+Math::Expression::Evaluator is a parser, compiler and interpreter for 
 mathematical expressions. It can handle normal arithmetics 
 (includings powers ^), builtin functions like sin() and variables.
 
@@ -79,6 +86,10 @@ logarithms: log, log2, log10
 constants: pi() (you need the parenthesis to distinguish it from the 
 variable pi)
 
+=item * 
+
+rounding: ceil(), floor()
+
 =item *
 
 other: theta (theta(x) = 1 for x > 0, theta(x) = 0 for x < 0)
@@ -105,6 +116,13 @@ Returns a reference to the object, so that method calls can be chained:
     print MathExpr->new->parse("1+2")->val;
 
 Parse failures cause this method to die with a stack trace. 
+
+=item compiled
+
+Returns an anonymous function that is a compiled version of the current
+expression. It is much faster to execute than the other methods, but its error
+messages aren't as informative (instead of complaining about a non-existing 
+variable it dies with C<Use of uninitialized value in...>).
 
 
 =item val 
@@ -134,11 +152,61 @@ C<variables()> returns a list of variables that are used in the expression.
 
 =back
 
+=head1 SPEED
+
+MEE isn't as fast as perl, because it is built on top of perl.
+
+If you execute an expression multiple times, it pays off to either optimize
+it first, or (even better) compile it to a pure perl function.
+
+                   Rate  no_optimize     optimize opt_compiled     compiled
+    no_optimize  83.9/s           --         -44%         -82%         -83%
+    optimize      150/s          78%           --         -68%         -69%
+    opt_compiled  472/s         463%         215%           --          -4%
+    compiled      490/s         485%         227%           4%           --
+
+This shows the time for 200 evaluations of C<2+a+5+(3+4)> (with MEE 0.0.5). 
+As you can see, the non-optimized version is painfully slow, optimization
+nearly doubles the execution speed. The compiled and the 
+optimized-and-then-compiled versions are both much faster.
+
+With this example expression the optimization prior to compilation pays off
+if you evaluate it more than 1000 times. But even if you call it C<10**5>
+times the optimized and compiled version is only 3% faster than the directly
+compiled one (mostly due to perl's overhead for method calls).
+
+So to summarize you should compile your expresions, and if you have really
+many iterations it might pay off to optimize it first (or to write your
+program in C instead ;-).
+
 =head1 INTERNALS
 
 The AST can be accessed as C<$obj->{ast}>. Its structure is described in 
 L<Math::Expression::Evaluator::Parser> (or you can use L<Data::Dumper> 
 to figure it out for yourself).
+
+=head1 SEE ALSO
+
+=head2 Other Modules in this Distribution
+
+L<Math::Expression::Evaluator::Lexer> breaks the input string into tokens.
+
+L<Math::Expression::Evaluator::Parser> turns the tokens into a parse 
+tree / AST. 
+
+L<Math::Expression::Evaluator::Optimizer> contains routines that simplify 
+and optinize the AST.
+
+L<Math::Expression::Evaluator::Util> contains common routines that are used
+in various of the other modules and shouldn't be of much interest for you.
+
+=head2 Other Distributions
+
+L<Math::Expression> also evaluates mathematical expressions, but also handles
+string operations.
+
+If you want to do symbolic (aka algebraic) transformations, L<Math::Symbolic> 
+will fit your needs.
 
 =head1 LICENSE
 
@@ -181,8 +249,8 @@ sub new {
 # parse a text into an AST, stores the AST in $self->{ast}
 sub parse {
     my ($self, $text) = @_;
-    my $ast = Math::Expression::Evaluator::Parser::parse($text, $self->{config});
-    $self->{ast} = simplify_ast($ast);
+    $self->{ast} = 
+        Math::Expression::Evaluator::Parser::parse($text, $self->{config});
     return $self;
 }
 
@@ -266,7 +334,7 @@ sub _exec_mul {
 # executes an _assignment
 sub _exec_assignment {
     my ($self, $lvalue, $rvalue) = @_;
-    if ((!ref $lvalue) or $lvalue->[0] ne '$'){
+    if (!is_lvalue($lvalue)){
         confess('Internal error: $lvalue is not a "variable" AST');
     }
     return $self->{variables}{$lvalue->[1]} = $self->_execute($rvalue);
@@ -279,6 +347,8 @@ sub _exec_function_call {
     my $name = shift;
     my %builtin_dispatch = (
             'sqrt'  => sub { sqrt $_[0] },
+            'ceil'  => sub { ceil $_[0] },
+            'floor' => sub { floor $_[0]},
             'sin'   => sub { sin  $_[0] },
             'asin'  => sub { asin $_[0] },
             'cos'   => sub { cos  $_[0] },
@@ -294,7 +364,7 @@ sub _exec_function_call {
             'theta' => sub { $_[0] > 0 ? 1 : 0 },
             'pi'    => sub { 3.141592653589793 },
 
-            );
+        );
     if (my $fun = $builtin_dispatch{$name}){
         return &$fun(map {$self->_execute($_)} @_);
     } else {
@@ -332,17 +402,94 @@ sub variables {
     my ($self) = shift;
     my %vars;
     my $v;
-    $v = sub {
-        my $ast = shift;
-        return unless ref $ast;
+    my @todo = ($self->{ast});
+    while (@todo){
+        my $ast = shift @todo;
+        next unless ref $ast;
         if ($ast->[0] eq '$'){
             $vars{$ast->[1]}++;
         } else {
-            &$v($_) for @$ast;
+            # XXX do we need push the first element of @$ast?
+            push @todo, @$ast;
         }
-    };
-    &$v($self->{ast});
+    }
     return sort keys %vars;
+}
+
+# emit perl code for an AST.
+# needed for compiling an expression into a anonymous sub
+sub _ast_to_perl {
+    my $ast = shift;
+    return $ast unless ref $ast;
+    my %translations = (
+        '$'     => sub { qq/( exists \$vars{$_[0]} ? \$vars{$_[0]} : \$default_vars{$_[0]})/ },
+        '{'     => sub { join "\n", map { _ast_to_perl($_) . ";" } @_ },
+        '='     => sub { qq/\$vars{$_[0][1]} = / . _ast_to_perl($_[1]) },
+        '+'     => sub { join ' + ', map { '(' . _ast_to_perl($_).  ')' } @_ },
+        '*'     => sub { join '*',   map { '(' . _ast_to_perl($_).  ')' } @_ },
+        '^'     => sub { '(' . _ast_to_perl($_[0]) . ')**(' . _ast_to_perl($_[1]) . ')' },
+        '-'     => sub {  '-(' . _ast_to_perl($_[0]) . ')' },
+        '/'     => sub { '1/(' . _ast_to_perl($_[0]) . ')' },
+        '&'     => \&_builtin_to_perl,
+    );
+    my ($action, @rest) = @$ast;
+    my $do = $translations{$action};
+    if ($do){
+        return &$do(@rest);
+    } else {
+        confess "Internal error: don't know what to do with '$action'";
+    }
+}
+
+sub _builtin_to_perl {
+    my ($name, @args) = @_;
+    my %builtins = (
+        sqrt    => sub { "sqrt($_[0])" },
+        ceil    => sub { "ceil($_[0])" },
+        floor   => sub { "floor($_[0])"},
+        sin     => sub { "sin($_[0])"  },
+        asin    => sub { "asin($_[0])" },
+        cos     => sub { "cos($_[0])"  },
+        acos    => sub { "acos($_[0])" },
+        tan     => sub { "tan($_[0])"  },
+        atan    => sub { "atan($_[0])" },
+        exp     => sub { "exp($_[0])"  },
+        log     => sub { "log($_[0])"  },
+        sinh    => sub { "do { my \$t=$_[0]; (exp(\$t) - exp(-(\$t)))/2}" },
+        cosh    => sub { "do { my \$t=$_[0]; (exp(\$t) + exp(-(\$t)))/2}" },
+        log10   => sub { "log($_[0]) / log(10)" },
+        log2    => sub { "log($_[0]) / log(2)" },
+        theta   => sub { "$_[0] > 0 ? 1 : 0" },
+        pi      => sub { "3.141592653589793" },
+    );
+    my $do = $builtins{$name};
+    if ($do){
+       return &$do(map { _ast_to_perl($_) } @args );
+    } else {
+        confess "Unknow function '$name'";
+    }
+}
+
+sub compiled {
+    my $self = shift;
+    local $Data::Dumper::Indent = 0;
+    local $Data::Dumper::Terse  = 1;
+    my $text = <<'CODE';
+sub {
+    my %vars = %{; shift || {} };
+    use warnings FATAL => qw(uninitialized);
+    no warnings 'void';
+    my %default_vars = %{; 
+CODE
+    chomp $text;
+    $text .= Dumper($self->{variables}) . "};\n    ";
+    $text .= _ast_to_perl($self->{ast});
+    $text .= "\n}\n";
+#    print STDERR "\n$text";
+    my $res =  eval $text;
+    confess "Internal error while compiling: $@" if $@;
+#    warn ref $res, $/;
+    return $res;
 }
 
 1;

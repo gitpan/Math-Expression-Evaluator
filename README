@@ -59,8 +59,8 @@ METHODS
       true, expressions have to be separated by a semicolon ';'.
 
     parse
-      Takes a string as argument, and generates an Abstract Syntax Tree(AST)
-      that is stored internally.
+      Takes a string as argument, and generates an AST that is stored
+      internally.
 
       Returns a reference to the object, so that method calls can be
       chained:
@@ -79,34 +79,4 @@ METHODS
           foreach (0 .. 10) {
               print $_, "\t", $m->val({x => $_}), "\n";
           }
-
-    optimize
-      Optimizes the internal AST, so that subsequent calls to "val()" will
-      be a bit faster. See "Math::Expression::Evaluator::Optimizer" for
-      performance considerations and informations on the implemented
-      optimizations.
-
-      But note that a call to "optimize()" only pays off if you call "val()"
-      multiple times.
-
-    variables
-      "variables()" returns a list of variables that are used in the
-      expression.
-
-INTERNALS
-    The AST can be accessed as "$obj-"{ast}>. Its structure is described in
-    Math::Expression::Evaluator::Parser (or you can use Data::Dumper to
-    figure it out for yourself).
-
-LICENSE
-    This module is free software. You may use, redistribute and modify it
-    under the same terms as perl itself.
-
-AUTHOR
-    Moritz Lenz, <http://moritz.faui2k3.org/>, moritz@faui2k3.org
-
-DEVELOPMENT
-    You can obtain the latest development version via subversion:
-
-        svn co https://casella.verplant.org/svn/moritz/cpan/Math-Expression-Evaluator/
 

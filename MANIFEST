@@ -1,4 +1,3 @@
-benchmark.pl
 Build.PL
 Changes
 lib/Math/Expression/Evaluator.pm
@@ -19,10 +18,8 @@ t/infix.t
 t/multiple-expressions.t
 t/null.t
 t/numbers.t
-t/optimize-effect.t
 t/optimize.t
 t/parsefails.t
 t/precedence.t
 t/prefix.t
-t/variable_list.t
 t/variables.t

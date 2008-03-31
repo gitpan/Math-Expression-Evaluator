@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 use Test::More;
-BEGIN { plan tests => 29 }
+BEGIN { plan tests => 43 }
 
 use Math::Expression::Evaluator;
 
@@ -13,6 +13,10 @@ sub e {
 }
 sub o {
     return $m->parse(shift)->optimize->val();
+}
+
+sub c {
+    return $m->parse(shift)->compiled->();
 }
 
 my @tests = (
@@ -35,6 +39,7 @@ my @tests = (
 for (@tests){
     is e($_->[0]), $_->[1], $_->[2];
     is o($_->[0]), $_->[1], $_->[2] . ' (optimized)';
+    is c($_->[0]), $_->[1], $_->[2] . ' (compiled)';
 }
 
 # vim: sw=4 ts=4 expandtab

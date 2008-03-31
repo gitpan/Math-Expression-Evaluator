@@ -5,34 +5,32 @@ package Math::Expression::Evaluator::Parser;
 Math::Expression::Evaluator::Parser - Parse mathematical expressions
 
 =head1 SYNOPSIS
-    
+
     use Math::Expression::Evaluator::Parser;
-    use Math::Expression::Evaluator::Util qw(simplify_ast);
     my $exp = '2 + a * 4';
     my $ast = Math::Expression::Evaluator::Parser::parse($exp, {});
-    $ast = simplify_ast($ast);
     # $ast is now something like this:
     # $ast = ['+',
     #          2,
     #         ['*',
     #          ['$', 'a'],
     #          4
-    #         ] 
-    #        ]; 
+    #         ]
+    #        ];
 
 =head1 DESCRIPTION
 
-This module parses a mathematical expression in usual notation, and 
+This module parses a mathematical expression in usual notation, and
 turns it into an Abstract Syntax Tree (AST).
 
-If you want to have a simple interface and want to evaluate these 
+If you want to have a simple interface and want to evaluate these
 ASTs, use L<Math::Expression::Evaluator>.
 
 The AST is a tree that consists of nested array refs. The first item
 is a string (until now always a single character), and denotes the type
 of the node. The rest of the items in the array is a list of its arguments.
 
-For the mathematical symbols C<+>, C<->, C<*>, C</>, C<^> (exponentation) 
+For the mathematical symbols C<+>, C<->, C<*>, C</>, C<^> (exponentation)
 this is straight forward, but C</> and C<-> are always treated as prefix ops,
 so the string '2 - 3' is actually turned into C<['+', 2, ['-', 3]]>.
 
@@ -53,6 +51,10 @@ C<['{', $expr1, $expr2, ... ]> represents a block, i.e. a list of expressions.
 C<['=', $var, $expr]> represents an assignment, where C<$expr> is assigned
 to C<$var>.
 
+=item '&'
+
+C<['&', $name, @args]> is a function toll to the function called C<$name>.
+
 =back
 
 =head1 METHODS
@@ -61,10 +63,10 @@ to C<$var>.
 
 =item parse
 
-C<parse> takes a string and a hash ref, where the hash ref takes 
-configuration parameters. Currently the only allowed option is 
+C<parse> takes a string and a hash ref, where the hash ref takes
+configuration parameters. Currently the only allowed option is
 C<force_semicolon>. If set to a true value, it forces statements to
-be forced by semicolons (so C<2 3> will be forbidden, C<2; 3> is still 
+be forced by semicolons (so C<2 3> will be forbidden, C<2; 3> is still
 allowed).
 
 C<parse> throws an exception on parse errors.
@@ -77,7 +79,7 @@ use strict;
 use warnings;
 
 use Math::Expression::Evaluator::Lexer qw(lex);
-use Math::Expression::Evaluator::Util qw(is_lvalue simplify_ast);
+use Math::Expression::Evaluator::Util qw(is_lvalue);
 use Carp qw(confess);
 use Data::Dumper;
 
@@ -98,11 +100,21 @@ my @input_tokens = (
         ['Whitespace'       => '\s+', sub {return undef}],
         ['Comment'          => qr/\#.*?$/, sub {return undef}],
 );
+
+my %token_description = (
+        ExpOp           => 'Operator',
+        MulOp           => 'Operator',
+        AddOp           => 'Operator',
+        AssignmentOp    => 'Operator',
+        Float           => 'Term',
+        Name            => 'Term',
+);
+
 sub parse {
 
     my ($text, $parse_opts) = @_;
 
-    # note that is object is only used internally, to the
+    # note that this object is only used internally, to the
     # world outside we hide it.
     my $self = bless {};
     $self->{config}         = $parse_opts;
@@ -113,7 +125,7 @@ sub parse {
 }
 
 # checks if the next token is what you expected, for example
-# _is_next_token("AddOp") checks, if the next token is a '+' or '-'
+# _is_next_token("AddOp") checks if the next token is a '+' or '-'
 sub _is_next_token {
     my $self = shift;
     my $cmp = shift;
@@ -122,17 +134,13 @@ sub _is_next_token {
     }
 }
 
-# basically the same _is_next_token, but does an arbitrary number of lookahead 
-# steps. An asterisk '*' stands for an arbitrary token.
+# basically the same _is_next_token, but does an arbitrary number of lookahead
+# steps.
 sub _lookahead {
     my $self = shift;
     my $i = 0;
     while (my $v = shift){
         return undef unless($self->{tokens}[$self->{token_pointer}+$i]);
-        if ($v eq "*") {
-            $i++; 
-            next;
-        }
         my $ref = $self->{tokens}[$self->{token_pointer} + $i]->[0];
         return undef unless($ref eq  $v);
         $i++;
@@ -153,7 +161,7 @@ sub _next_token {
 }
 
 # program -> statement*
-# parse a program, e.g. a collection of statements. 
+# parse a program, e.g. a collection of statements.
 # The corrsponding AST looks like this: ['{', $s1, $s2, $s3, ... ]
 sub _program {
     my $self = shift;
@@ -161,18 +169,20 @@ sub _program {
     while (defined $self->_next_token()){
         push @res, $self->_statement();
     }
-    return \@res;
+    return _return_simplify(@res);
 }
 
-# generates an error message that something was expected but not found, 
-# for example 'a + +' would warn that a value was expected, but an AddOp 
+# generates an error message that something was expected but not found,
+# for example 'a + +' would warn that a value was expected, but an AddOp
 # was found.
 sub _expected {
     my $self = shift;
     if (scalar @_ > 1){
-        confess("Parse error: Expected $_[0]; got: $_[1]\n");
+        confess("Parse error: Expected $_[0]; got: '$_[1]'\n"
+                . "near character " . $self->_next_token->[2] . "\n");
     } else {
-        confess ("Parse error: Expected: ", $_[0], $/);
+        confess("Parse error: Expected $_[0]\n"
+                . "near character " . $self->_next_token->[2] . "\n");
     }
 }
 
@@ -219,10 +229,11 @@ sub _function_call {
     if ($self->_is_next_token("ClosingParen")){
         $self->_proceed();
         return \@res;
-    } 
+    }
     push @res, $self->_expression();
     while ($self->_is_next_token("Comma")){
         $self->_proceed();
+        last if $self->_is_next_token('ClosingParen');
         push @res, $self->_expression();
     }
     $self->_match("ClosingParen");
@@ -296,7 +307,7 @@ sub _term {
             die "Don't know how to handle MulOp $op\n";
         }
     }
-    return \@res;
+    return _return_simplify(@res);
 }
 
 # <expression> ::= ['+'|'-']? <term> [('+'|'-') term]*
@@ -305,7 +316,7 @@ sub _expression {
 #   print STDERR "expression...\n";
     my @res = ('+');
     if (my $op = $self->_is_next_token("AddOp")){
-# unary +/-
+        # unary +/-
         $self->_proceed();
         if ($op eq '+'){
             push @res, $self->_term();
@@ -319,14 +330,13 @@ sub _expression {
         if ($op eq '+'){
             $self->_proceed();
             push @res, $self->_term();
-        } elsif ($op eq '-'){
+        } else {
+            # a '-'
             $self->_proceed();
             push @res, ['-', $self->_term()];
-        } else {
-            confess("weird things...\n");
         }
     }
-    return \@res;
+    return _return_simplify(@res);
 }
 
 # <factor> ::= <value> | '(' <expression> ')'
@@ -353,10 +363,13 @@ sub _exponential {
         return ['^', $val, $self->_factor()];
     } else {
         return $val;
-
     }
 }
 
+sub _return_simplify {
+    return $_[1] if @_ == 2;
+    return \@_;
+}
 
 
 1;

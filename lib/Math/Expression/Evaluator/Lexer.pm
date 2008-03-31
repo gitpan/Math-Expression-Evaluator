@@ -1,4 +1,5 @@
-package Math::Expression::Evaluator::Lexer;
+package # hide from PAUSE indexer;
+    Math::Expression::Evaluator::Lexer;
 use warnings;
 use strict;
 use Carp qw(confess);
@@ -13,17 +14,17 @@ Math::Expression::Evaluator::Lexer - Simple Lexer
     use Math::Expression::Evaluator::Lexer qw(lex);
     # suppose you want to parse simple math expressions
     my @input_tokens = (
-        ['Int',             qr/(?:-|\+)?\d+/],
-        ['Op',              qr/\+|\*|-|\//],
-        ['Brace_Open',      qr/\(/],
-        ['Brace_Close',     qr/\)/],
-        ['Whitespace',      qr/\s/, sub { return undef; }],
+        ['Int',             qr/[+-]?\d+/ ],
+        ['Op',              qr([+-/*])   ],
+        ['Brace_Open',      qr/\(/       ],
+        ['Brace_Close',     qr/\)/       ],
+        ['Whitespace',      qr/\s+/, sub { return; }],
          );
     my $text = "-12 * (3+4)";
     my $out_tokens = lex($text, \@input_tokens);
     for (@$out_tokens){
-        my ($name, $text) = @$_;
-        print "Found Token $name: $text\n";
+        my ($name, $text, $pos) = @$_;
+        print "Found Token $name: $text (string pos: $pos)\n";
     }
 
 =head1 DESCRIPTION
@@ -48,8 +49,12 @@ function returns undef, that token will not be included in the list
 of output tokens.
 
 lex() returns an array ref to a list of output tokens, each output 
-token is a reference to a list which contains the token name and 
-the matched text.
+token is a reference to a list which contains the token name, the matched 
+text and the string position (in characters, counted from the start of
+the input string, zero based).
+
+Note that C<lex()> puts parentheses around the entire regex, so if you 
+want to use backreferences, the numbering of the capturing group is changed.
 
 =back
 
@@ -76,23 +81,25 @@ sub lex {
     my ($text, $tokens) = @_;
     confess("passed undefined value to lex()") unless defined $text;
     my $l = length $text;
-    return unless ($l);
+    return [] unless ($l);
 
     my $old_pos = 0;
 
     my @res;
-    while ($old_pos < $l){
+
+    # avoid 'Use of uninitialized value in numeric lt (<)' warnings:
+    pos($text) = 0;
+
+    while (pos($text) < $l){
         my $matched = 0;
 REGEXES:
         for (@$tokens){
             my $re = $_->[1];
-            # failed regex matches reset pos(), so we need to set it 
-            # manually
-            pos($text) = $old_pos;
-            if ($text =~ m/\G($re)/){
+            # failed regex matches reset pos() unless the /c modifier
+            # is present
+            if ($text =~ m/\G($re)/gc){
                 $matched = 1;
                 my $match = $1;
-                $old_pos += length $match;
                 if (length $match == 0){
                     confess("Each token has to require at least one "
                             . "character; Rule $_->[0] matched Zero!\n");
@@ -101,14 +108,14 @@ REGEXES:
                     $match = &{$_->[2]}($match);
                 }
                 if (defined $match && length $match){
-#                    push @res, [$_->[0], $match, $old_pos];
-                    push @res, [$_->[0], $match];
+                    push @res, [$_->[0], $match, pos($text) - length($match)];
+#                    push @res, [$_->[0], $match];
                 }
                 next REGEXES;
             }
         }
         if ($matched == 0){
-            confess("No token matched input text <$text> at position $old_pos");
+            confess("No token matched input text <$text> at position " . pos($text));
         }
     }
     return \@res;

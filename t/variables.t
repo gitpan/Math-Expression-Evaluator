@@ -1,7 +1,7 @@
 use strict;
 use warnings;
 use Test::More;
-BEGIN { plan tests => 6 }
+BEGIN { plan tests => 9 }
 
 use Math::Expression::Evaluator;
 
@@ -12,9 +12,16 @@ sub e {
     return $m->parse(shift)->val();
 }
 
+sub c {
+    return $m->parse(shift)->compiled->();
+}
+
 is e('a = 3'),      3,  'Assignment returns value';
-is e('a'),          3,  'Variables persisent';
+is c('a = 3'),      3,  'Assignment returns value (compiled)';
+is e('a'),          3,  'Variables persistent';
+is c('a'),          3,  'Variables persistent (compiled)';
 is e('a*a'),        9,  'Arithmetics with variables';
+is c('a*a'),        9,  'Arithmetics with variables (compiled)';
 
 $m->parse("a + b");
 is $m->val({a => 1, b => 2}), 3, 'externally assigned variables';
