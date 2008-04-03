@@ -9,7 +9,7 @@ use Carp;
 
 use Math::Trig qw(atan asin acos tan);
 
-our $VERSION = '0.0.5';
+our $VERSION = '0.0.6';
 
 =head1 NAME
 
@@ -41,6 +41,11 @@ Math::Expression::Evaluator - parses, compiles and evaluates mathematic expressi
 Math::Expression::Evaluator is a parser, compiler and interpreter for 
 mathematical expressions. It can handle normal arithmetics 
 (includings powers ^), builtin functions like sin() and variables.
+
+Multiplication C<*>, division C</> and modulo C<%> have the same precedence,
+and are evaluated left to right. The modulo operation follows the standard
+perl semantics, that is is the arguments are castet to integer before
+preforming the modulo operation.
 
 Multiple exressions can be seperated by whitespaces or by semicolons ';'. 
 In case of multiple expressions the value of the last expression is 
@@ -124,6 +129,12 @@ expression. It is much faster to execute than the other methods, but its error
 messages aren't as informative (instead of complaining about a non-existing 
 variable it dies with C<Use of uninitialized value in...>).
 
+Note that variables are not persistent between calls to compiled functions
+(and it wouldn't make sense anyway, because such a function corresponds always 
+to exactly one expression, not many as a MEE object).
+
+Variables that were stored at the time when C<compiled()> is called are
+availble in the compiled function, though.
 
 =item val 
 
@@ -179,6 +190,16 @@ So to summarize you should compile your expresions, and if you have really
 many iterations it might pay off to optimize it first (or to write your
 program in C instead ;-).
 
+=head1 BUGS AND LIMITATIONS
+
+=over 4
+
+=item *
+
+Modulo operator produces an unnecessary big AST, making it relatively slow
+
+=back
+
 =head1 INTERNALS
 
 The AST can be accessed as C<$obj->{ast}>. Its structure is described in 
@@ -186,21 +207,6 @@ L<Math::Expression::Evaluator::Parser> (or you can use L<Data::Dumper>
 to figure it out for yourself).
 
 =head1 SEE ALSO
-
-=head2 Other Modules in this Distribution
-
-L<Math::Expression::Evaluator::Lexer> breaks the input string into tokens.
-
-L<Math::Expression::Evaluator::Parser> turns the tokens into a parse 
-tree / AST. 
-
-L<Math::Expression::Evaluator::Optimizer> contains routines that simplify 
-and optinize the AST.
-
-L<Math::Expression::Evaluator::Util> contains common routines that are used
-in various of the other modules and shouldn't be of much interest for you.
-
-=head2 Other Distributions
 
 L<Math::Expression> also evaluates mathematical expressions, but also handles
 string operations.
@@ -271,6 +277,7 @@ sub _execute {
             '-' => sub {my $self = shift; 0 - $self->_execute(shift)},
             '+' => \&_exec_sum,
             '*' => \&_exec_mul,
+            '%' => sub {my $self = shift; $self->_execute($_[0]) % $self->_execute($_[1]) },
             '^' => sub {my $self = shift; $self->_execute(shift) **  $self->_execute(shift)},
             '=' => \&_exec_assignment,
             '&' => \&_exec_function_call,
@@ -376,7 +383,7 @@ sub _exec_function_call {
 sub _variable_lookup {
     my ($self, $var) = @_;
 #    warn "Looking up <$var>\n";
-    if (exists $self->{temp_vars} && exists $self->{temp_vars}->{$var}){
+    if (exists $self->{temp_vars}->{$var}){
         return $self->{temp_vars}->{$var};
     } elsif (exists $self->{variables}->{$var}){
         return $self->{variables}->{$var};
@@ -421,13 +428,22 @@ sub variables {
 sub _ast_to_perl {
     my $ast = shift;
     return $ast unless ref $ast;
+
+    my $joined_operator = sub {
+        my $op = shift;
+        return sub {
+            join $op, map { '(' . _ast_to_perl($_).  ')' } @_ 
+        };
+    };
+
     my %translations = (
         '$'     => sub { qq/( exists \$vars{$_[0]} ? \$vars{$_[0]} : \$default_vars{$_[0]})/ },
         '{'     => sub { join "\n", map { _ast_to_perl($_) . ";" } @_ },
         '='     => sub { qq/\$vars{$_[0][1]} = / . _ast_to_perl($_[1]) },
-        '+'     => sub { join ' + ', map { '(' . _ast_to_perl($_).  ')' } @_ },
-        '*'     => sub { join '*',   map { '(' . _ast_to_perl($_).  ')' } @_ },
-        '^'     => sub { '(' . _ast_to_perl($_[0]) . ')**(' . _ast_to_perl($_[1]) . ')' },
+        '+'     => &$joined_operator('+'),
+        '*'     => &$joined_operator('*'),
+        '^'     => &$joined_operator('**'),
+        '%'     => &$joined_operator('%'),
         '-'     => sub {  '-(' . _ast_to_perl($_[0]) . ')' },
         '/'     => sub { '1/(' . _ast_to_perl($_[0]) . ')' },
         '&'     => \&_builtin_to_perl,
@@ -444,21 +460,21 @@ sub _ast_to_perl {
 sub _builtin_to_perl {
     my ($name, @args) = @_;
     my %builtins = (
-        sqrt    => sub { "sqrt($_[0])" },
-        ceil    => sub { "ceil($_[0])" },
-        floor   => sub { "floor($_[0])"},
-        sin     => sub { "sin($_[0])"  },
-        asin    => sub { "asin($_[0])" },
-        cos     => sub { "cos($_[0])"  },
-        acos    => sub { "acos($_[0])" },
-        tan     => sub { "tan($_[0])"  },
-        atan    => sub { "atan($_[0])" },
-        exp     => sub { "exp($_[0])"  },
-        log     => sub { "log($_[0])"  },
+        sqrt    => sub {  "sqrt($_[0])" },
+        ceil    => sub {  "ceil($_[0])" },
+        floor   => sub { "floor($_[0])" },
+        sin     => sub {   "sin($_[0])" },
+        asin    => sub {  "asin($_[0])" },
+        cos     => sub {   "cos($_[0])" },
+        acos    => sub {  "acos($_[0])" },
+        tan     => sub {   "tan($_[0])" },
+        atan    => sub {  "atan($_[0])" },
+        exp     => sub {   "exp($_[0])" },
+        log     => sub {   "log($_[0])" },
         sinh    => sub { "do { my \$t=$_[0]; (exp(\$t) - exp(-(\$t)))/2}" },
         cosh    => sub { "do { my \$t=$_[0]; (exp(\$t) + exp(-(\$t)))/2}" },
-        log10   => sub { "log($_[0]) / log(10)" },
-        log2    => sub { "log($_[0]) / log(2)" },
+        log10   => sub {   "log($_[0]) / log(10)" },
+        log2    => sub {   "log($_[0]) / log(2)" },
         theta   => sub { "$_[0] > 0 ? 1 : 0" },
         pi      => sub { "3.141592653589793" },
     );

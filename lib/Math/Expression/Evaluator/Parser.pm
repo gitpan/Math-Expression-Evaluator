@@ -1,4 +1,5 @@
-package Math::Expression::Evaluator::Parser;
+package #hide from PAUSE indexer
+    Math::Expression::Evaluator::Parser;
 
 =head1 NAME
 
@@ -86,7 +87,7 @@ use Data::Dumper;
 
 my @input_tokens = (
         ['ExpOp'            => '\^'],
-        ['MulOp'            => '\*|/'],
+        ['MulOp'            =>  qr{[*/%]}],
         ['AddOp'            => '\+|-'],
 # This regex is 'stolen' from Regexp::Common, and a bit simplified
 # Copyright by Damian Conway and Abigail, 2001-2005
@@ -142,7 +143,7 @@ sub _lookahead {
     while (my $v = shift){
         return undef unless($self->{tokens}[$self->{token_pointer}+$i]);
         my $ref = $self->{tokens}[$self->{token_pointer} + $i]->[0];
-        return undef unless($ref eq  $v);
+        return undef unless($ref eq $v);
         $i++;
     }
     return 1;
@@ -194,10 +195,6 @@ sub _match {
     my $val;
     confess("Expected $m, got EOF") unless ref $self->_next_token();
     if ($self->_next_token()->[0] eq $m){
-        my $next = shift;
-        if ($next && $next ne $self->_next_token()->[1]){
-            $self->_expected($next, $self->_next_token()->[1]);
-        }
         $val = $self->_next_token()->[1];
         $self->_proceed();
         return $val;
@@ -303,6 +300,10 @@ sub _term {
         } elsif ($op eq '/'){
             $self->_proceed();
             push @res, ['/',  $self->_exponential()];
+        } elsif ($op eq '%') {
+            $self->_proceed();
+            # XXX not very efficient
+            @res = ('*', ['%', [@res], $self->_exponential()]);
         } else {
             die "Don't know how to handle MulOp $op\n";
         }
@@ -344,9 +345,9 @@ sub _factor {
     my $self = shift;
     my $val;
     if ($self->_is_next_token("OpenParen")){
-        $self->_match("OpenParen", '(');
+        $self->_match("OpenParen");
         $val = $self->_expression();
-        $self->_match("ClosingParen", ')');
+        $self->_match("ClosingParen");
     } else {
         $val = $self->_value();
     }

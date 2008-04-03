@@ -14,7 +14,7 @@ sub e {
     return $m->parse(shift)->val();
 }
 sub c {
-    return $m->parse(shift)->compiled->();
+    return &{$m->parse(shift)->compiled}();
 }
 
 my @tests = (
