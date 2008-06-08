@@ -9,7 +9,7 @@ use Carp;
 
 use Math::Trig qw(atan asin acos tan);
 
-our $VERSION = '0.0.6';
+our $VERSION = '0.1.0';
 
 =head1 NAME
 
@@ -161,6 +161,12 @@ multiple times.
 
 C<variables()> returns a list of variables that are used in the expression.
 
+=item ast_size
+
+C<ast_size> returns an integer which gives a crude measure of the logical
+size of the expression. Note that this value isn't guarantueed to be stable
+across multiple versions of this module. It is mainly intended for testing.
+
 =back
 
 =head1 SPEED
@@ -227,7 +233,7 @@ Moritz Lenz, L<http://moritz.faui2k3.org/>, moritz@faui2k3.org
 
 You can obtain the latest development version via subversion:
 
-    svn co https://casella.verplant.org/svn/moritz/cpan/Math-Expression-Evaluator/
+    svn co https://faui2k3.org/svn/moritz/cpan/Math-Expression-Evaluator/
 
 =cut
 
@@ -394,13 +400,13 @@ sub _variable_lookup {
 
 # used for testing purposes only:
 # returns the (recursive) number of operands in the AST
-sub _ast_size {
+sub ast_size {
     my ($self, $ast) = @_;
     $ast = defined $ast ? $ast : $self->{ast};
     return 1 unless ref $ast;
     my $size = -1; # the initial op/type should be ignored
     for (@$ast){
-        $size += $self->_ast_size($_);
+        $size += $self->ast_size($_);
     }
     return $size;
 }
