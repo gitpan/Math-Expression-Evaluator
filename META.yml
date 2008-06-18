@@ -1,6 +1,6 @@
 ---
 name: Math-Expression-Evaluator
-version: 0.1.0
+version: 0.1.1
 author:
   - Moritz Lenz
 abstract: 'parses, compiles and evaluates mathematic expressions'
@@ -11,11 +11,11 @@ requires:
   Carp: 0
   Data::Dumper: 0
   Math::Trig: 0
-  perl: 5.6.1
+  perl: 5.006001
 provides:
   Math::Expression::Evaluator:
     file: lib/Math/Expression/Evaluator.pm
-    version: 0.1.0
+    version: 0.1.1
   Math::Expression::Evaluator::Lexer:
     file: lib/Math/Expression/Evaluator/Lexer.pm
   Math::Expression::Evaluator::Optimizer:
