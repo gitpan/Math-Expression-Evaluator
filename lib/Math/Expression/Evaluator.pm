@@ -9,7 +9,7 @@ use Carp;
 
 use Math::Trig qw(atan asin acos tan);
 
-our $VERSION = '0.1.2';
+our $VERSION = '0.1.3';
 
 =head1 NAME
 
@@ -225,15 +225,20 @@ will fit your needs.
 This module is free software. You may use, redistribute and modify it under
 the same terms as perl itself.
 
-=head1 AUTHOR
+=head1 COPYRIGHT
 
-Moritz Lenz, L<http://moritz.faui2k3.org/>, moritz@faui2k3.org
+Copyright (C) 2007 - 2009 Moritz Lenz,
+L<http://perlgeek.de/>, moritz@faui2k3.org
 
 =head1 DEVELOPMENT
 
-You can obtain the latest development version via subversion:
+You can obtain the latest development version from github
+L<http://github.com/moritz/math-expression-evaluator>.
 
-    svn co https://faui2k3.org/svn/moritz/cpan/Math-Expression-Evaluator/
+    git clone git://github.com/moritz/math-expression-evaluator.git
+
+If you want to contribute something to this module, please ask me for
+a commit bit to the github repository, I'm giving them out freely.
 
 =cut
 
@@ -280,7 +285,7 @@ sub _execute {
     my ($self, $ast) = @_;
     my %dispatch = (
             '/' => sub {my $self = shift; 1 / $self->_execute(shift)},
-            '-' => sub {my $self = shift; 0 - $self->_execute(shift)},
+            '-' => sub {my $self = shift; -$self->_execute(shift)},
             '+' => \&_exec_sum,
             '*' => \&_exec_mul,
             '%' => sub {my $self = shift; $self->_execute($_[0]) % $self->_execute($_[1]) },
@@ -307,9 +312,10 @@ sub _execute {
 # executes a sum
 sub _exec_sum {
     my $self = shift;
-    my $sum = 0;
+    # avoid addition for unary plus, for overloaded objects
+    my $sum = $self->_execute(shift);
     foreach (@_){
-        $sum += $self->_execute($_);
+        $sum = $sum + $self->_execute($_);
     }
     return $sum;
 }
