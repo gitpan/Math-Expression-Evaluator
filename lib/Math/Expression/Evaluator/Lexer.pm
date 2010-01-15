@@ -14,7 +14,7 @@ Math::Expression::Evaluator::Lexer - Simple Lexer
     # suppose you want to parse simple math expressions
     my @input_tokens = (
         ['Int',             qr/[+-]?\d+/ ],
-        ['Op',              qr([+-/*])   ],
+        ['Op',              qr{[+-/*]}   ],
         ['Brace_Open',      qr/\(/       ],
         ['Brace_Close',     qr/\)/       ],
         ['Whitespace',      qr/\s+/, sub { return; }],
@@ -37,7 +37,7 @@ into tokens, depending on the input tokens you provide
 
 =item lex
 
-The only exported method is lex, which expects input text as its 
+The only exported routine is lex, which expects input text as its 
 first argument and a array ref to list of input tokens.
 
 Each input token consists of a token name (which you can choose freely), 
@@ -45,12 +45,13 @@ a regex which matches the desired token, and optionally a reference to
 a functions that takes the matched token text as its argument. The 
 token text is replaced by the return value of that function. If the 
 function returns undef, that token will not be included in the list 
-of output tokens.
+of output tokens. The regex should either fail or match at least one
+character; zero-width matches utterly confuse the lexer, and are disallowed.
 
 lex() returns an array ref to a list of output tokens, each output 
 token is a reference to a list which contains the token name, the matched 
-text and the string position (in characters, counted from the start of
-the input string, zero based).
+text, the string position (in characters, counted from the start of
+the input string, zero based) and the line number.
 
 Note that C<lex()> puts parentheses around the entire regex, so if you 
 want to use backreferences, the numbering of the capturing group is changed.
@@ -80,9 +81,16 @@ sub lex {
     my ($text, $tokens) = @_;
     confess("passed undefined value to lex()") unless defined $text;
     my $l = length $text;
-    return [] unless ($l);
+    return [] unless $l;
 
-    my $old_pos = 0;
+    my ($last_line_number, $last_pos) = (0, 0);
+    my $pos_and_line_number = sub {
+        my $pos = shift;
+        $last_line_number +=
+            (substr($text, $last_pos, $pos - $last_pos) =~ tr/\n//);
+        $last_pos = $pos;
+        return ($pos, $last_line_number + 1);
+    };
 
     my @res;
 
@@ -103,12 +111,20 @@ REGEXES:
                     confess("Each token has to require at least one "
                             . "character; Rule $_->[0] matched Zero!\n");
                 }
+
+                # safe information before callbacks can modify $match
+                # and thus length($match)
+                my $pos = pos($text) - length($match);
+
                 if ($_->[2]){
-                    $match = &{$_->[2]}($match);
+                    $match = $_->[2]->($match);
                 }
-                if (defined $match && length $match){
-                    push @res, [$_->[0], $match, pos($text) - length($match)];
-#                    push @res, [$_->[0], $match];
+                if (defined $match){
+                    push @res, [
+                        $_->[0],
+                        $match,
+                        $pos_and_line_number->($pos),
+                    ];
                 }
                 next REGEXES;
             }

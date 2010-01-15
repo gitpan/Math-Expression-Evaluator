@@ -9,7 +9,9 @@ use Carp;
 
 use Math::Trig qw(atan asin acos tan);
 
-our $VERSION = '0.2.0';
+our $VERSION = '0.3.0';
+
+=encoding UTF-8
 
 =head1 NAME
 
@@ -193,6 +195,25 @@ The callback will be called every time the variable is accessed, so if it
 requires expensive calculations, you are encouraged to cache it either
 yourself our automatically with L<Memoize>.
 
+=item set_function
+
+Allows to add a user-defined function, or to override a built-in function.
+
+    my $m = Math::Expression::Evaluator->new();
+    $m->set_function('abs', sub { abs($_[0]) });
+    $m->parse('abs(10.6)');
+    print $m->val();
+
+If you first compile the expression to a perl closure and then call
+C<<$m->set_function>> again, the compiled function stays unaffected, so
+
+    $m->set_function('f', sub { 42 });
+    my $compiled = $m->parse('f')->compiled;
+    $m->set_function('f', sub { -23 });
+    print $compiled->();
+
+print out C<42>, not C<-23>.
+
 =item ast_size
 
 C<ast_size> returns an integer which gives a crude measure of the logical
@@ -242,7 +263,8 @@ Modulo operator produces an unnecessary big AST, making it relatively slow
 
 The AST can be accessed as C<$obj->{ast}>. Its structure is described in 
 L<Math::Expression::Evaluator::Parser> (or you can use L<Data::Dumper> 
-to figure it out for yourself).
+to figure it out for yourself). Note that the exact form of the AST is
+considered to be an implementation detail, and subject to change.
 
 =head1 SEE ALSO
 
@@ -271,6 +293,22 @@ L<http://github.com/moritz/math-expression-evaluator>.
 
 If you want to contribute something to this module, please ask me for
 a commit bit to the github repository, I'm giving them out freely.
+
+=head1 ACKNOWLEDGEMENTS
+
+The following people have contributed to this module, in no particular order:
+
+=over
+
+=item Leonardo Herrera
+
+Initial patch for C<set_function>
+
+=item Tina Müller
+
+Helpful feedback
+
+=back
 
 =cut
 
@@ -317,12 +355,12 @@ sub optimize {
 sub _execute {
     my ($self, $ast) = @_;
     my %dispatch = (
-            '/' => sub {my $self = shift; 1 / $self->_execute(shift)},
-            '-' => sub {my $self = shift; -$self->_execute(shift)},
+            '/' => sub {1 / $_[0]->_execute($_[1])},
+            '-' => sub {-$_[0]->_execute($_[1])},
             '+' => \&_exec_sum,
             '*' => \&_exec_mul,
-            '%' => sub {my $self = shift; $self->_execute($_[0]) % $self->_execute($_[1]) },
-            '^' => sub {my $self = shift; $self->_execute(shift) **  $self->_execute(shift)},
+            '%' => sub {$_[0]->_execute($_[1]) % $_[0]->_execute($_[2]) },
+            '^' => sub {$_[0]->_execute($_[1]) **  $self->_execute($_[2])},
             '=' => \&_exec_assignment,
             '&' => \&_exec_function_call,
             '{' => \&_exec_block,
@@ -338,7 +376,7 @@ sub _execute {
             confess ("Operator '$op' not yet implemented\n");
         }
     } else {
-        return $ast;
+        $ast;
     }
 }
 
@@ -374,7 +412,7 @@ sub _exec_block {
     foreach (@_){
         $res = $self->_execute($_);
     }
-    return $res;
+    $res;
 }
 
 # executes a multiplication 
@@ -384,7 +422,7 @@ sub _exec_mul {
     foreach (@_){
         $prod *= $self->_execute($_);
     }
-    return $prod;
+    $prod;
 }
 
 # executes an _assignment
@@ -396,33 +434,48 @@ sub _exec_assignment {
     return $self->{variables}{$lvalue->[1]} = $self->_execute($rvalue);
 }
 
+
+my %builtin_dispatch_table = (
+    'sqrt'  => sub { sqrt $_[0] },
+    'ceil'  => sub { ceil $_[0] },
+    'floor' => sub { floor $_[0]},
+    'sin'   => sub { sin  $_[0] },
+    'asin'  => sub { asin $_[0] },
+    'cos'   => sub { cos  $_[0] },
+    'acos'  => sub { acos $_[0] },
+    'tan'   => sub { tan  $_[0] },
+    'atan'  => sub { atan $_[0] },
+    'exp'   => sub { exp  $_[0] },
+    'log'   => sub { log  $_[0] },
+    'sinh'  => sub { (exp($_[0]) - exp(-$_[0]))/2},
+    'cosh'  => sub { (exp($_[0]) + exp(-$_[0]))/2},
+    'log10' => sub { log($_[0]) / log(10) },
+    'log2'  => sub { log($_[0]) / log(2) },
+    'theta' => sub { $_[0] > 0 ? 1 : 0 },
+    'pi'    => sub { 3.141592653589793 },
+);
+
+
+sub set_function {
+    my ($self, $name, $func) = @_;
+
+    $self->{_user_dispatch_table}->{$name} = $func;
+}
+
 # executes a function call
-# currently only builtins are supported
 sub _exec_function_call {
     my $self = shift;
     my $name = shift;
-    my %builtin_dispatch = (
-            'sqrt'  => sub { sqrt $_[0] },
-            'ceil'  => sub { ceil $_[0] },
-            'floor' => sub { floor $_[0]},
-            'sin'   => sub { sin  $_[0] },
-            'asin'  => sub { asin $_[0] },
-            'cos'   => sub { cos  $_[0] },
-            'acos'  => sub { acos $_[0] },
-            'tan'   => sub { tan  $_[0] },
-            'atan'  => sub { atan $_[0] },
-            'exp'   => sub { exp  $_[0] },
-            'log'   => sub { log  $_[0] },
-            'sinh'  => sub { (exp($_[0]) - exp(-$_[0]))/2},
-            'cosh'  => sub { (exp($_[0]) + exp(-$_[0]))/2},
-            'log10' => sub { log($_[0]) / log(10) },
-            'log2'  => sub { log($_[0]) / log(2) },
-            'theta' => sub { $_[0] > 0 ? 1 : 0 },
-            'pi'    => sub { 3.141592653589793 },
 
-        );
-    if (my $fun = $builtin_dispatch{$name}){
-        return &$fun(map {$self->_execute($_)} @_);
+    my %dispatch_table = %builtin_dispatch_table;
+
+    my %user_fun = %{$self->{_user_dispatch_table} || {} };
+    while (my ($k, $v) = each %user_fun) {
+        $dispatch_table{$k} = $v;
+    }
+
+    if (my $fun = $dispatch_table{$name}){
+        return $fun->(map {$self->_execute($_)} @_);
     } else {
         confess("Unknown function: $name");
     }
@@ -475,27 +528,27 @@ sub variables {
 # emit perl code for an AST.
 # needed for compiling an expression into a anonymous sub
 sub _ast_to_perl {
-    my $ast = shift;
+    my ($self, $ast) = @_;;
     return $ast unless ref $ast;
 
     my $joined_operator = sub {
         my $op = shift;
         return sub {
-            join $op, map { '(' . _ast_to_perl($_).  ')' } @_
+            join $op, map { '(' . $self->_ast_to_perl($_).  ')' } @_
         };
     };
 
     my %translations = (
         '$'     => sub { qq/( exists \$vars{$_[0]} ? \$vars{$_[0]} : exists \$default_vars{$_[0]} ? \$default_vars{$_[0]} : \$self->{var_callback}->("$_[0]")) / },
-        '{'     => sub { join "\n", map { _ast_to_perl($_) . ";" } @_ },
-        '='     => sub { qq/\$vars{$_[0][1]} = / . _ast_to_perl($_[1]) },
+        '{'     => sub { join "\n", map { $self->_ast_to_perl($_) . ";" } @_ },
+        '='     => sub { qq/\$vars{$_[0][1]} = / . $self->_ast_to_perl($_[1]) },
         '+'     => &$joined_operator('+'),
         '*'     => &$joined_operator('*'),
         '^'     => &$joined_operator('**'),
         '%'     => &$joined_operator('%'),
-        '-'     => sub {  '-(' . _ast_to_perl($_[0]) . ')' },
-        '/'     => sub { '1/(' . _ast_to_perl($_[0]) . ')' },
-        '&'     => \&_builtin_to_perl,
+        '-'     => sub {  '-(' . $self->_ast_to_perl($_[0]) . ')' },
+        '/'     => sub { '1/(' . $self->_ast_to_perl($_[0]) . ')' },
+        '&'     => sub { $self->_function_to_perl(@_) },
     );
     my ($action, @rest) = @$ast;
     my $do = $translations{$action};
@@ -506,8 +559,7 @@ sub _ast_to_perl {
     }
 }
 
-sub _builtin_to_perl {
-    my ($name, @args) = @_;
+{
     my %builtins = (
         sqrt    => sub {  "sqrt($_[0])" },
         ceil    => sub {  "ceil($_[0])" },
@@ -527,11 +579,20 @@ sub _builtin_to_perl {
         theta   => sub { "$_[0] > 0 ? 1 : 0" },
         pi      => sub { "3.141592653589793" },
     );
-    my $do = $builtins{$name};
-    if ($do){
-       return &$do(map { _ast_to_perl($_) } @args );
-    } else {
-        confess "Unknow function '$name'";
+
+    sub _function_to_perl {
+        my ($self, $name, @args) = @_;
+        if ($self->{_user_dispatch_table}->{$name}) {
+            return qq[\$user_functions{'$name'}->(]
+                   . join(',', map { $self->_ast_to_perl($_) } @args)
+                   . qq[)];
+        }
+        my $do = $builtins{$name};
+        if ($do){
+            return $do->(map { $self->_ast_to_perl($_) } @args );
+        } else {
+            confess "Unknow function '$name'";
+        }
     }
 }
 
@@ -539,6 +600,11 @@ sub compiled {
     my $self = shift;
     local $Data::Dumper::Indent = 0;
     local $Data::Dumper::Terse  = 1;
+
+    # the eval will close over %user_functions
+    # if it contains any calls to it. Closures FTW!
+    my %user_functions = %{ $self->{_user_dispatch_table} || {} };
+
     my $text = <<'CODE';
 sub {
     my %vars = %{; shift || {} };
@@ -548,12 +614,11 @@ sub {
 CODE
     chomp $text;
     $text .= Dumper($self->{variables}) . "};\n    ";
-    $text .= _ast_to_perl($self->{ast});
+    $text .= $self->_ast_to_perl($self->{ast});
     $text .= "\n}\n";
 #    print STDERR "\n$text";
     my $res =  eval $text;
     confess "Internal error while compiling: $@" if $@;
-#    warn ref $res, $/;
     return $res;
 }
 

@@ -153,6 +153,25 @@ METHODS
       it requires expensive calculations, you are encouraged to cache it
       either yourself our automatically with Memoize.
 
+    set_function
+      Allows to add a user-defined function, or to override a built-in
+      function.
+
+          my $m = Math::Expression::Evaluator->new();
+          $m->set_function('abs', sub { abs($_[0]) });
+          $m->parse('abs(10.6)');
+          print $m->val();
+
+      If you first compile the expression to a perl closure and then call
+      "<$m-"set_function>> again, the compiled function stays unaffected, so
+
+          $m->set_function('f', sub { 42 });
+          my $compiled = $m->parse('f')->compiled;
+          $m->set_function('f', sub { -23 });
+          print $compiled->();
+
+      print out 42, not -23.
+
     ast_size
       "ast_size" returns an integer which gives a crude measure of the
       logical size of the expression. Note that this value isn't guarantueed
@@ -193,7 +212,8 @@ BUGS AND LIMITATIONS
 INTERNALS
     The AST can be accessed as "$obj-"{ast}>. Its structure is described in
     Math::Expression::Evaluator::Parser (or you can use Data::Dumper to
-    figure it out for yourself).
+    figure it out for yourself). Note that the exact form of the AST is
+    considered to be an implementation detail, and subject to change.
 
 SEE ALSO
     Math::Expression also evaluates mathematical expressions, but also
@@ -218,4 +238,14 @@ DEVELOPMENT
 
     If you want to contribute something to this module, please ask me for a
     commit bit to the github repository, I'm giving them out freely.
+
+ACKNOWLEDGEMENTS
+    The following people have contributed to this module, in no particular
+    order:
+
+    Leonardo Herrera
+        Initial patch for "set_function"
+
+    Tina Müller
+        Helpful feedback
 

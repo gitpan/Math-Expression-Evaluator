@@ -26,6 +26,11 @@ turns it into an Abstract Syntax Tree (AST).
 If you want to have a simple interface and want to evaluate these
 ASTs, use L<Math::Expression::Evaluator>.
 
+The following description of the AST structure matches the current
+implementation, but really is an implementation detail that's subject to
+change without further notice. In particular a possible addition of meta
+information (like file and line numbers) might require a change of structure.
+
 The AST is a tree that consists of nested array refs. The first item
 is a string (until now always a single character), and denotes the type
 of the node. The rest of the items in the array is a list of its arguments.
@@ -129,8 +134,9 @@ sub parse {
 sub _is_next_token {
     my $self = shift;
     my $cmp = shift;
-    if (defined $self->_next_token() && $self->_next_token()->[0] eq $cmp){
-        return $self->_next_token->[1];
+    my $next = $self->{tokens}[$self->{token_pointer}];
+    if (defined $next && $next->[0] eq $cmp){
+        return $next->[1];
     }
 }
 
@@ -156,8 +162,7 @@ sub _proceed {
 
 # returns the next not-yet-parsed token
 sub _next_token {
-    my $self = shift;
-    return $self->{tokens}[$self->{token_pointer}];
+    return $_[0]->{tokens}[$_[0]->{token_pointer}];
 }
 
 # program -> statement*
@@ -192,8 +197,9 @@ sub _match {
     my $self = shift;
     my $m = shift;
     my $val;
-    confess("Expected $m, got EOF") unless ref $self->_next_token();
-    if ($self->_next_token()->[0] eq $m){
+    my $next = $self->_next_token();
+    confess("Expected $m, got EOF") unless ref $next;
+    if ($next->[0] eq $m){
         $val = $self->_next_token()->[1];
         $self->_proceed();
         return $val;
@@ -254,8 +260,8 @@ sub _statement {
     }
 
     if ($self->{config}->{force_semicolon}){
-# forced semicolon at the and of a statement, but last statement
-# isn't forced to have one.
+# forced semicolon between two statements (but the last statement
+# isn't forced to have one):
         if ($self->_next_token()){
             $self->_match("Colon");
         }
@@ -354,7 +360,7 @@ sub _factor {
 }
 
 # <exponential> ::= <factor> [ '^' <factor>]?
-# note that 2**3**4 is not defined
+# note that 2^3^4 is not defined, ie ^ is not associative
 sub _exponential {
     my $self = shift;
     my $val = $self->_factor();
