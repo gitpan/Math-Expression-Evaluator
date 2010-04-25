@@ -1,21 +1,19 @@
 ---
-name: Math-Expression-Evaluator
-version: 0.3.0
-author:
-  - Moritz Lenz
 abstract: 'parses, compiles and evaluates mathematic expressions'
+author:
+  - 'Moritz Lenz'
+configure_requires:
+  Module::Build: 0.36
+generated_by: 'Module::Build version 0.3603'
 license: perl
-resources:
-  license: http://dev.perl.org/licenses/
-requires:
-  Carp: 0
-  Data::Dumper: 0
-  Math::Trig: 0
-  perl: 5.006001
+meta-spec:
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: Math-Expression-Evaluator
 provides:
   Math::Expression::Evaluator:
     file: lib/Math/Expression/Evaluator.pm
-    version: 0.3.0
+    version: v0.3.1
   Math::Expression::Evaluator::Lexer:
     file: lib/Math/Expression/Evaluator/Lexer.pm
   Math::Expression::Evaluator::Optimizer:
@@ -24,7 +22,11 @@ provides:
     file: lib/Math/Expression/Evaluator/Parser.pm
   Math::Expression::Evaluator::Util:
     file: lib/Math/Expression/Evaluator/Util.pm
-generated_by: Module::Build version 0.280801
-meta-spec:
-  url: http://module-build.sourceforge.net/META-spec-v1.2.html
-  version: 1.2
+requires:
+  Carp: 0
+  Data::Dumper: 0
+  Math::Trig: 0
+  perl: 5.006001
+resources:
+  license: http://dev.perl.org/licenses/
+version: v0.3.1
